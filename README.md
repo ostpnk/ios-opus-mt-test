@@ -38,6 +38,9 @@ CI (`.github/workflows/build.yml`) runs on every push to `main` and on manual di
 - `patches/sentencepiece-clang20-kAnyType.patch`: clang 20 (NDK r29) rejects
   a `constexpr` enum constant outside the enum's range in SentencePiece's
   trainer (never used for translation, but linked).
+- `patches/marian-TargetArch-arm64.patch`: Marian's architecture detection
+  predates Apple Silicon and rejects `CMAKE_OSX_ARCHITECTURES=arm64`
+  ("Invalid OS X arch name"); it now reports it as `armv8`, like aarch64.
 
 ## Licences
 

@@ -31,8 +31,9 @@ git -C "$DEST" submodule update --init --depth 1 \
 git -C "$DEST/inference/marian-fork/src/3rd_party/ruy" \
   submodule update --init --depth 1 third_party/cpuinfo
 
-# patches/<submodule-name>-<what>.patch, applied inside that submodule.
-# Idempotent: a patch that's already applied is skipped.
+# patches/<where>-<what>.patch, applied inside that repo: `marian-*` to
+# mozilla/translations itself (marian-fork/ isn't a submodule), others to
+# the submodule they name. Idempotent: an applied patch is skipped.
 apply() {
   local dir="$1" patch="$2"
   if git -C "$dir" apply --reverse --check "$patch" 2>/dev/null; then
@@ -42,6 +43,7 @@ apply() {
     echo "applied: $(basename "$patch")"
   fi
 }
+apply "$DEST" "$ROOT/patches/marian-TargetArch-arm64.patch"
 apply "$DEST/inference/marian-fork/src/3rd_party/sentencepiece" \
   "$ROOT/patches/sentencepiece-clang20-kAnyType.patch"
 
