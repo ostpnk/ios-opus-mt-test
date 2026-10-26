@@ -18,6 +18,12 @@ BUILD="$ROOT/build-$PLATFORM"
 OUT="$ROOT/out/$PLATFORM"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 
+# CMake 4 (Homebrew's, on the macOS runners) no longer configures projects
+# declaring cmake_minimum_required < 3.5, as cpuinfo's bundled clog does.
+# The environment variable (rather than -D) reaches ExternalProjects too.
+# CMake 3.x ignores it.
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
+
 # Shared by every platform:
 #   - GIT_SUBMODULE=OFF: CMake would otherwise `git submodule update` the
 #     whole training repo's submodules (fetch-engine.sh already got ours).
