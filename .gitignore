@@ -5,3 +5,5 @@
 /opus-cache/
 /out-opus/
 __pycache__/
+/compare-cache/
+/out-compare/
