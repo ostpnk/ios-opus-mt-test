@@ -59,6 +59,10 @@ case "$PLATFORM" in
     )
     ;;
   macos)
+    # Also as an environment variable: the PCRE2 ExternalProject doesn't
+    # receive -DCMAKE_OSX_DEPLOYMENT_TARGET and otherwise targets the
+    # runner's own macOS version (ld: "built for newer macOS").
+    export MACOSX_DEPLOYMENT_TARGET=12.0
     PLATFORM_FLAGS=(
       -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
       -DBUILD_ARCH=armv8-a
