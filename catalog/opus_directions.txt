@@ -1,0 +1,39 @@
+# OPUS-MT directions to convert (catalog/opus_bundles.py): <src-trg> <Tatoeba release>.
+# Pinned releases, each the best-scoring regular-size (not transformer-big)
+# bilingual model for its direction in Helsinki-NLP's released-models list
+# when this file was written; the comment is its published Tatoeba chrF.
+
+ces-eng opus-2021-01-03  # chrF 0.719
+dan-eng opus-2021-02-19  # chrF 0.777
+deu-eng opus-2021-02-22  # chrF 0.697
+ell-eng opus-2021-02-18  # chrF 0.801
+eng-ces opus-2021-02-19  # chrF 0.663
+eng-dan opus+bt-2021-04-13  # chrF 0.754
+eng-deu opus-2021-02-22  # chrF 0.655
+eng-ell opus+bt-2021-04-13  # chrF 0.740
+eng-fin opusTCv20210807+bt-2021-11-08  # chrF 0.643
+eng-fra opus-2021-02-22  # chrF 0.671
+eng-hun opus+bt-2021-04-13  # chrF 0.631
+eng-ita opus+bt-2021-04-14  # chrF 0.696
+eng-nld opus+bt-2021-04-14  # chrF 0.731
+eng-pol opus-2021-02-19  # chrF 0.673
+eng-por opus-2021-02-18  # chrF 0.652
+eng-ron opus+bt-2021-03-07  # chrF 0.678
+eng-spa opus+bt-2021-04-10  # chrF 0.721
+eng-swe opus+bt-2021-04-14  # chrF 0.747
+fin-eng opusTCv20210807+bt-2021-12-08  # chrF 0.723
+fra-eng opus-2021-02-19  # chrF 0.724
+hun-eng opus+bt-2021-04-30  # chrF 0.677
+ita-eng opus+bt-2021-04-30  # chrF 0.797
+nld-eng opus+bt-2021-04-30  # chrF 0.755
+pol-eng opus+bt-2021-04-30  # chrF 0.692
+por-eng opus+bt-2021-04-30  # chrF 0.761
+ron-eng opus+bt-2021-04-30  # chrF 0.737
+spa-eng opus+bt-2021-04-30  # chrF 0.740
+swe-eng opus+bt-2021-04-30  # chrF 0.770
+ces-ita opus-2021-02-19  # chrF 0.675
+dan-ita opus-2021-02-19  # chrF 0.727
+fra-ita opusTCv20210807-2021-11-11  # chrF 0.737
+ita-ces opus-2021-02-19  # chrF 0.619
+ita-dan opus-2021-02-19  # chrF 0.704
+ita-fin opus-2021-05-16  # chrF 0.680

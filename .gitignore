@@ -2,3 +2,5 @@
 /build-*/
 /out/
 /models/
+/opus-cache/
+/out-opus/

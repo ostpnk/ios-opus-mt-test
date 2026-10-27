@@ -111,13 +111,18 @@ configure -DCMAKE_CXX_FLAGS="$DEFS"
 
 # -k 0: keep building past a failure, so one run reports every error
 # instead of the first (each CI round trip rebuilds Marian from scratch).
-cmake --build "$BUILD" --target bergamot test_capi translator-cli -- -j "$JOBS" -k 0
+# marian-conv only for Linux: catalog/opus_bundles.py converts OPUS-MT models
+# to int8 with it.
+targets=(bergamot test_capi translator-cli)
+[[ "$PLATFORM" == linux ]] && targets+=(marian-conv)
+cmake --build "$BUILD" --target "${targets[@]}" -- -j "$JOBS" -k 0
 
 rm -rf "$OUT"
 mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/include"
 cp "$BUILD"/libbergamot.* "$OUT/lib/"
 cp "$ROOT/capi/bergamot_c.h" "$OUT/include/"
 cp "$BUILD/test_capi" "$BUILD/engine/src/app/translator-cli" "$OUT/bin/"
+[[ "$PLATFORM" == linux ]] && cp "$BUILD/marian-conv" "$OUT/bin/"
 
 # The release copy: stripped (a few MB instead of 12-40 MB of debug info),
 # named for its target so all of them can sit side by side in one release.
