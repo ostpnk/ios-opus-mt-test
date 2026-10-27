@@ -118,4 +118,24 @@ mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/include"
 cp "$BUILD"/libbergamot.* "$OUT/lib/"
 cp "$ROOT/capi/bergamot_c.h" "$OUT/include/"
 cp "$BUILD/test_capi" "$BUILD/engine/src/app/translator-cli" "$OUT/bin/"
+
+# The release copy: stripped (a few MB instead of 12-40 MB of debug info),
+# named for its target so all of them can sit side by side in one release.
+# Only local symbols go on Apple (strip -x); the bt_* exports must stay.
+mkdir -p "$OUT/release"
+case "$PLATFORM" in
+  android)
+    STRIP=$(ls "$NDK"/toolchains/llvm/prebuilt/*/bin/llvm-strip | head -1)
+    "$STRIP" --strip-unneeded -o "$OUT/release/libbergamot-android-arm64.so" "$OUT/lib/libbergamot.so"
+    ;;
+  linux)
+    strip --strip-unneeded -o "$OUT/release/libbergamot-linux-x64.so" "$OUT/lib/libbergamot.so"
+    ;;
+  macos|ios|ios-sim)
+    name="libbergamot-$PLATFORM-arm64.dylib"
+    [[ "$PLATFORM" == macos ]] && name="libbergamot-macos-arm64.dylib"
+    cp "$OUT/lib/libbergamot.dylib" "$OUT/release/$name"
+    strip -x "$OUT/release/$name"
+    ;;
+esac
 ls -l "$OUT"/*
