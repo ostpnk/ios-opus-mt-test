@@ -25,7 +25,7 @@ jobs:
       - name: Build macOS
         run: build/build.sh macos
       - name: Test macOS
-        run: build/smoke-test.sh out/macos/bin/translator-cli
+        run: build/smoke-test.sh out/macos
       - name: Build iOS (device)
         run: build/build.sh ios
       - name: Build iOS (simulator)
@@ -38,7 +38,7 @@ jobs:
           udid=$(xcrun simctl list devices available -j \
             | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r in d.values() for x in r if x["name"].startswith("iPhone")))')
           xcrun simctl boot "$udid"
-          build/smoke-test.sh out/ios-sim/bin/translator-cli xcrun simctl spawn "$udid"
+          build/smoke-test.sh out/ios-sim xcrun simctl spawn "$udid"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -52,13 +52,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Tools
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libpcre2-dev
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
       - name: Fetch engine
         run: build/fetch-engine.sh
       - name: Build Linux
         run: build/build.sh linux
       - name: Test Linux
-        run: build/smoke-test.sh out/linux/bin/translator-cli
+        run: build/smoke-test.sh out/linux
       - uses: actions/upload-artifact@v4
         if: always()
         with:

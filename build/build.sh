@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Builds Mozilla's translation engine (Bergamot + its Marian fork) for one
-# platform: the translator-cli test binary plus the static libraries an app
-# would link.
+# Builds libbergamot (capi/: a C interface over Mozilla's translation
+# engine, Bergamot on its Marian fork) for one platform, plus two test
+# programs: test_capi (the C interface) and the engine's translator-cli.
 #
 # Usage: build/build.sh <platform> [engine-dir]
 #   platform: macos | ios | ios-sim | android | linux
 #   engine-dir: what build/fetch-engine.sh produced (default ./engine)
-# Output: out/<platform>/{bin,lib}
+# Output: out/<platform>/{lib/libbergamot.*,include/bergamot_c.h,bin/*}
 #
 # Written for bash 3.2 too (macOS's /bin/bash): no associative arrays.
 set -euo pipefail
 
 PLATFORM="${1:?usage: build.sh <macos|ios|ios-sim|android|linux> [engine-dir]}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="${2:-$ROOT/engine}/inference"
+ENGINE="${2:-$ROOT/engine}/inference"
 BUILD="$ROOT/build-$PLATFORM"
 OUT="$ROOT/out/$PLATFORM"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
@@ -27,12 +27,19 @@ export CMAKE_POLICY_VERSION_MINIMUM=3.5
 # Shared by every platform:
 #   - GIT_SUBMODULE=OFF: CMake would otherwise `git submodule update` the
 #     whole training repo's submodules (fetch-engine.sh already got ours).
+#   - PIC everywhere: the engine's static libraries end up inside a shared
+#     library.
 #   - ruy for float GEMM everywhere (USE_RUY_SGEMM), not OpenBLAS/MKL or
 #     Apple Accelerate: one code path on every platform, and no system
 #     BLAS for an app to depend on. On x86 int8 still goes through intgemm.
 COMMON=(
   -G Ninja
   -DCMAKE_BUILD_TYPE=Release
+  -DENGINE_DIR="$ENGINE"
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+  # The sentence splitter's PCRE2, from the source fetch-engine.sh unpacked
+  # (built PIC; a system libpcre2-8.a isn't).
+  -DSSPLIT_USE_INTERNAL_PCRE2=ON
   -DGIT_SUBMODULE=OFF
   -DCOMPILE_CPU=ON -DCOMPILE_CUDA=OFF
   -DUSE_FBGEMM=OFF -DUSE_MKL=OFF -DUSE_NCCL=OFF -DUSE_DOXYGEN=OFF
@@ -43,7 +50,7 @@ case "$PLATFORM" in
   linux)
     # A portable x86-64 baseline, never `native` (the default), which
     # bakes in the build machine's CPU. intgemm picks AVX2/AVX512 kernels
-    # at runtime regardless. PCRE2 comes from the system (libpcre2-dev).
+    # at runtime regardless.
     PLATFORM_FLAGS=(-DBUILD_ARCH=x86-64-v2)
     ;;
   android)
@@ -55,7 +62,6 @@ case "$PLATFORM" in
       -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28
       -DANDROID_STL=c++_static
       -DBUILD_ARCH=armv8-a
-      -DSSPLIT_USE_INTERNAL_PCRE2=ON
     )
     ;;
   macos)
@@ -66,7 +72,6 @@ case "$PLATFORM" in
     PLATFORM_FLAGS=(
       -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
       -DBUILD_ARCH=armv8-a
-      -DSSPLIT_USE_INTERNAL_PCRE2=ON
     )
     ;;
   ios|ios-sim)
@@ -78,14 +83,13 @@ case "$PLATFORM" in
     PLATFORM_FLAGS=(
       -DCMAKE_TOOLCHAIN_FILE="$ROOT/build/ios.toolchain.cmake"
       -DBUILD_ARCH=armv8-a
-      -DSSPLIT_USE_INTERNAL_PCRE2=ON
     )
     ;;
   *) echo "unknown platform: $PLATFORM" >&2; exit 2 ;;
 esac
 
 configure() {
-  cmake -S "$SRC" -B "$BUILD" "${COMMON[@]}" "${PLATFORM_FLAGS[@]}" "$@"
+  cmake -S "$ROOT/capi" -B "$BUILD" "${COMMON[@]}" "${PLATFORM_FLAGS[@]}" "$@"
 }
 
 # Pass 1, then hand Marian's own compile definitions to the whole build.
@@ -96,7 +100,7 @@ configure() {
 # build.ninja so each platform gets exactly what Marian chose for it.
 configure
 DEFS=$(awk '
-  /^build marian-fork\/src\/CMakeFiles\/marian.dir\/common\/utils.cpp.o:/ { f = 1 }
+  /^build [^:]*marian-fork\/src\/CMakeFiles\/marian\.dir\/common\/utils\.cpp\.o:/ { f = 1 }
   f && /^  DEFINES = / { sub(/^  DEFINES = /, ""); print; exit }
 ' "$BUILD/build.ninja")
 if [[ -z "$DEFS" ]]; then
@@ -107,10 +111,11 @@ configure -DCMAKE_CXX_FLAGS="$DEFS"
 
 # -k 0: keep building past a failure, so one run reports every error
 # instead of the first (each CI round trip rebuilds Marian from scratch).
-cmake --build "$BUILD" --target translator-cli -- -j "$JOBS" -k 0
+cmake --build "$BUILD" --target bergamot test_capi translator-cli -- -j "$JOBS" -k 0
 
-mkdir -p "$OUT/bin" "$OUT/lib"
-cp "$BUILD/src/app/translator-cli" "$OUT/bin/"
-# Every static library translator-cli links, for an app to link the same.
-find "$BUILD" -name '*.a' -not -path '*/CMakeFiles/*' -exec cp {} "$OUT/lib/" \;
-ls -l "$OUT/bin" "$OUT/lib"
+rm -rf "$OUT"
+mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/include"
+cp "$BUILD"/libbergamot.* "$OUT/lib/"
+cp "$ROOT/capi/bergamot_c.h" "$OUT/include/"
+cp "$BUILD/test_capi" "$BUILD/engine/src/app/translator-cli" "$OUT/bin/"
+ls -l "$OUT"/*

@@ -1,0 +1,6 @@
+/* ELF (Linux, Android): export the C interface only. Without this, C++
+   template instances from the engine's static libraries leak out too. */
+{
+  global: bt_*;
+  local: *;
+};

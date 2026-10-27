@@ -7,9 +7,37 @@ Translations models and OPUS-MT models) on phones and desktops. A spike for
 on its Marian fork) for each platform and checks that it translates.
 
 Nothing from the engine is vendored here: `build/fetch-engine.sh` checks
-out `mozilla/translations` at a pinned commit and applies `patches/`.
+out `mozilla/translations` at a pinned commit (plus the PCRE2 source,
+checksum-verified) and applies `patches/`.
+
+## libbergamot
+
+`capi/` is a plain C interface to the engine (`bergamot_c.h`), built as a
+shared library, `libbergamot`, for callers that can't use C++ — `dart:ffi`
+in particular:
+
+- `bt_service_create` / `bt_model_load` / `bt_translate` / `*_free`, on
+  opaque handles. `bt_translate` takes a batch of texts, optionally a pivot
+  model (it→en then en→de, for it→de) and `BT_FLAG_HTML`.
+- Relative paths in a model's config resolve against the directory passed
+  to `bt_model_load`, so a model directory can move without rewriting it.
+- **Errors never take the process down.** Every call returns a
+  `bt_status` and a message. The engine's fatal errors (Marian's `ABORT`,
+  normally `std::abort()`) are switched to exceptions and caught at the
+  boundary: a missing or corrupt model file is `BT_ERROR_MODEL_LOAD`.
+- Blocking, on the calling thread; one thread at a time per service and per
+  model.
+- Exports the `bt_*` functions only (`exports.map` / `exports.txt`).
+
+`capi/test_capi.c`, in C, tests it: error paths, a batch, HTML, pivoting.
 
 ## Platforms
+
+`build/build.sh <platform>` produces `out/<platform>/` with
+`lib/libbergamot.{so,dylib}`, `include/bergamot_c.h` and two test programs,
+`bin/test_capi` and `bin/translator-cli` (the engine's own CLI).
+`build/smoke-test.sh out/<platform>` runs both against Mozilla's it↔en
+models.
 
 | Platform | Script | Tested by CI |
 |---|---|---|
@@ -23,6 +51,9 @@ CI (`.github/workflows/build.yml`) runs on every push to `main` and on manual di
 
 ## What the build changes, and why
 
+- **Position-independent everywhere, PCRE2 built from source everywhere**:
+  the engine's static libraries go into a shared library, and a system
+  `libpcre2-8.a` (Linux) isn't PIC.
 - **One float-GEMM path everywhere** (`USE_RUY_SGEMM`): Google's ruy, not
   OpenBLAS/MKL/Accelerate, so no system BLAS is needed. On x86 int8 still
   uses intgemm.

@@ -50,4 +50,26 @@ apply "$DEST/inference/3rd_party/ssplit-cpp" "$ROOT/patches/ssplit-pcre2-nojit-i
 apply "$DEST/inference/marian-fork/src/3rd_party/sentencepiece" \
   "$ROOT/patches/sentencepiece-clang20-kAnyType.patch"
 
+# PCRE2 source for the sentence splitter, unpacked where ssplit's CMake
+# looks for it (SSPLIT_USE_INTERNAL_PCRE2), so the build itself needs no
+# network. Every platform builds this same copy: Linux's system
+# libpcre2-8.a isn't position-independent, so it can't go into a shared
+# library. Version as ssplit pins it; the checksum is of the release tarball
+# (GitHub publishes none; its size, 2309964 bytes, matched the release).
+PCRE2=pcre2-10.39
+PCRE2_SHA256=0781bd2536ef5279b1943471fdcdbd9961a2845e1d2c9ad849b9bd98ba1a9bd4
+PCRE2_DIR="$DEST/inference/3rd_party/ssplit-cpp/src/3rd-party"
+if [[ ! -f "$PCRE2_DIR/$PCRE2/configure" ]]; then
+  mkdir -p "$PCRE2_DIR"
+  curl -sSfL -o "$PCRE2_DIR/$PCRE2.tar.gz" \
+    "https://github.com/PhilipHazel/pcre2/releases/download/$PCRE2/$PCRE2.tar.gz"
+  actual=$(if command -v sha256sum >/dev/null; then sha256sum "$PCRE2_DIR/$PCRE2.tar.gz"; else shasum -a 256 "$PCRE2_DIR/$PCRE2.tar.gz"; fi | cut -d' ' -f1)
+  if [[ "$actual" != "$PCRE2_SHA256" ]]; then
+    echo "PCRE2 checksum mismatch: $actual" >&2; exit 1
+  fi
+  tar -xzf "$PCRE2_DIR/$PCRE2.tar.gz" -C "$PCRE2_DIR"
+  rm "$PCRE2_DIR/$PCRE2.tar.gz"
+  echo "unpacked $PCRE2"
+fi
+
 echo "engine ready: $DEST/inference ($(git -C "$DEST" rev-parse --short HEAD))"
