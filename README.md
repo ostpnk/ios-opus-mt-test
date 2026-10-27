@@ -1,4 +1,4 @@
-# ios-opus-mt-test
+# translate-engine
 
 Build scripts for running offline machine translation (Mozilla's Firefox
 Translations models and OPUS-MT models) on phones and desktops. A spike for
