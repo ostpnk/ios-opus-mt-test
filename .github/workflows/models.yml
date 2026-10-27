@@ -1,0 +1,52 @@
+name: models
+
+# A models-* tag repackages every released Mozilla model (catalog/
+# mozilla_bundles.py) and publishes the bundles, catalog.json, the registry
+# snapshot used, and SHA256SUMS as a release. A push touching catalog/ only
+# smoke-tests two pairs and publishes nothing.
+on:
+  push:
+    branches: [main]
+    paths: ['catalog/**', '.github/workflows/models.yml']
+    tags: ['models-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repackage
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/models-* ]]; then
+            only=()
+          else
+            only=(--only it-en,en-it)
+          fi
+          python3 -I catalog/mozilla_bundles.py --out out \
+            --release-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" \
+            "${only[@]}"
+          cat out/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/models-') }}
+        with:
+          name: catalog
+          path: |
+            out/catalog.json
+            out/SHA256SUMS
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/models-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/bundles/* \
+            out/catalog.json out/registry.json out/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Translation models $GITHUB_REF_NAME" \
+            --notes "Mozilla's released Firefox Translations models (MPL-2.0), unmodified, one .tar.gz per direction with the licence and each file's source (SOURCE.md). catalog.json lists them for core_translate_model; registry.json is the Mozilla registry snapshot they were taken from."
