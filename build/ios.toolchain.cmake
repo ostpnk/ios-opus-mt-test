@@ -10,3 +10,7 @@ endif()
 set(CMAKE_OSX_SYSROOT $ENV{IOS_SDK})
 # Executables (translator-cli, CMake's own checks) link without signing.
 set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)
+# Plain executables, not .app bundles (CMake's iOS default): SentencePiece's
+# install() rules give no BUNDLE DESTINATION, which fails configure, and the
+# simulator test runs translator-cli directly.
+set(CMAKE_MACOSX_BUNDLE OFF)
