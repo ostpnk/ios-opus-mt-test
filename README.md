@@ -46,6 +46,10 @@ CI (`.github/workflows/build.yml`) runs on every push to `main` and on manual di
   variable-length arrays, which Apple clang reports
   (`-Wvla-cxx-extension`) and Marian's `-Werror` turns into errors. The
   sizes are now `const`.
+- `patches/marian-zlib-TARGET_OS_MAC.patch`: Marian bundles zlib 1.2.11,
+  whose `zutil.h` takes `TARGET_OS_MAC` to mean classic Mac OS and
+  `#define`s `fdopen` to `NULL` — breaking the macOS/iOS SDK's own
+  `fdopen` declaration. Checks `MACOS` only, as zlib 1.2.12 does.
 - `CMAKE_POLICY_VERSION_MINIMUM=3.5` (set by `build.sh`): CMake 4 no longer
   configures cpuinfo's bundled clog, which declares an older minimum.
 
