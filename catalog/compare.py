@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Compares the published Mozilla and OPUS-MT models where both cover a
 direction: the same sentences through each, via libbergamot (catalog/bt.py,
-the interface apps use), scored with chrF against human references.
+the interface apps use), scored with chrF against human references. Where
+only OPUS-MT has a direct model (fr-it), compares it with Mozilla's route
+through English (fr-en, then en-it) — what an app would use without it.
 
 Two test sets, since neither alone says how a model does in an app:
   - FLORES-200 devtest (Meta, CC BY-SA 4.0): Wikipedia-style sentences,
@@ -9,8 +11,8 @@ Two test sets, since neither alone says how a model does in an app:
   - Tatoeba: short everyday sentences — the release test file of the OPUS-MT
     model's own Tatoeba release (held out from its training).
 
-Writes OUT/compare.json: per direction, both models' chrF on each set and
-their translation time. Nothing is published; core_translate_catalog orders
+Writes OUT/compare.json: per direction, both models' (or the direct model's
+and the pivot route's) chrF on each set and their translation time. Nothing is published; core_translate_catalog orders
 its entries from this.
 
 Usage:
@@ -71,20 +73,25 @@ def unpack(entry, cache, into):
     return into / entry["modelRoot"]
 
 
-def score(bt, entry, directory, sets):
-    model = bt.load_model(config_yaml(entry["engineConfig"]), str(directory))
+def score(bt, entries, directories, sets):
+    """Translates every set through [entries] in order — one model, or two
+    for a route through English."""
+    models = [bt.load_model(config_yaml(e["engineConfig"]), str(d))
+              for e, d in zip(entries, directories)]
     try:
         result = {}
         for name, (sources, references) in sets.items():
             start = time.monotonic()
-            hypotheses = bt.translate(model, sources)
+            hypotheses = bt.translate(models[0], sources,
+                                      pivot=models[1] if len(models) > 1 else None)
             seconds = time.monotonic() - start
             result[name] = {"chrF": round(chrf(hypotheses, references), 4),
                             "seconds": round(seconds, 2),
                             "example": [sources[0], hypotheses[0], references[0]]}
         return result
     finally:
-        bt.free_model(model)
+        for model in models:
+            bt.free_model(model)
 
 
 def main():
@@ -113,13 +120,18 @@ def main():
             releases[pair] = release
 
     by_pair = {(e["sourceLanguage"], e["targetLanguage"]): e for e in mozilla}
-    pairs = [(by_pair[(o["sourceLanguage"], o["targetLanguage"])], o) for o in opus
-             if (o["sourceLanguage"], o["targetLanguage"]) in by_pair]
+    # (direction, [mozilla entries: one, or two through English], opus entry)
+    pairs = []
+    for o in opus:
+        src, trg = o["sourceLanguage"], o["targetLanguage"]
+        if (src, trg) in by_pair:
+            pairs.append((f"{src}-{trg}", [by_pair[(src, trg)]], o))
+        elif (src, "en") in by_pair and ("en", trg) in by_pair:
+            pairs.append((f"{src}-{trg}", [by_pair[(src, "en")], by_pair[("en", trg)]], o))
     if args.only:
         wanted = set(args.only.split(","))
-        pairs = [(m, o) for m, o in pairs
-                 if f"{o['sourceLanguage']}-{o['targetLanguage']}" in wanted]
-    print(f"{len(pairs)} directions both cover", flush=True)
+        pairs = [p for p in pairs if p[0] in wanted]
+    print(f"{len(pairs)} directions to compare", flush=True)
 
     flores_tar = fetch(FLORES_URL, args.cache / "flores200_dataset.tar.gz")
     flores = {}
@@ -133,10 +145,10 @@ def main():
 
     results = []
     with Bergamot(args.library) as bt:
-        for moz, op in pairs:
+        for direction, moz, op in pairs:
             src, trg = op["sourceLanguage"], op["targetLanguage"]
-            direction = f"{src}-{trg}"
-            print(f"{direction}: {moz['id']} vs {op['id']}", flush=True)
+            mozilla_name = "mozilla" if len(moz) == 1 else "mozilla-pivot"
+            print(f"{direction}: {'+'.join(m['id'] for m in moz)} vs {op['id']}", flush=True)
             n = args.flores_sentences
             sets = {"flores": (flores[FLORES[src]][:n], flores[FLORES[trg]][:n])}
             pair3 = f"{BCP47_TO_TATOEBA[src]}-{BCP47_TO_TATOEBA[trg]}"
@@ -146,11 +158,11 @@ def main():
             sets["tatoeba"] = ([t[0] for t in triples], [t[1] for t in triples])
 
             entry = {"direction": direction, "sentences": {k: len(v[0]) for k, v in sets.items()}}
-            for family, catalog_entry in [("mozilla", moz), ("opus-mt", op)]:
+            for family, entries in [(mozilla_name, moz), ("opus-mt", [op])]:
                 with tempfile.TemporaryDirectory() as tmp:
-                    directory = unpack(catalog_entry, args.cache, Path(tmp))
-                    entry[family] = {"id": catalog_entry["id"],
-                                     **score(bt, catalog_entry, directory, sets)}
+                    directories = [unpack(e, args.cache, Path(tmp)) for e in entries]
+                    entry[family] = {"id": "+".join(e["id"] for e in entries),
+                                     **score(bt, entries, directories, sets)}
                 print(f"  {family}: " + ", ".join(
                     f"{s} chrF {entry[family][s]['chrF']:.3f} ({entry[family][s]['seconds']} s)"
                     for s in sets), flush=True)
