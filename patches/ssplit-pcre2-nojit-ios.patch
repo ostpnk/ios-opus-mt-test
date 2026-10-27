@@ -1,0 +1,18 @@
+diff --git a/cmake/FindPCRE2.cmake b/cmake/FindPCRE2.cmake
+index 8ea55cb..e1805d9 100644
+--- a/cmake/FindPCRE2.cmake
++++ b/cmake/FindPCRE2.cmake
+@@ -29,8 +29,11 @@ if(SSPLIT_USE_INTERNAL_PCRE2)
+   endif()
+ 
+   # Set configure options for internal pcre2 depeding on compiler
+-  if(CMAKE_CXX_COMPILER MATCHES "/em\\+\\+(-[a-zA-Z0-9.])?$")
+-    # jit compilation isn't supported by wasm
++  # jit compilation isn't supported by wasm, and Apple's mobile platforms
++  # forbid generating executable code (PCRE2's JIT doesn't even link there:
++  # undefined ___clear_cache). ssplit checks PCRE2_CONFIG_JIT at runtime.
++  if(CMAKE_CXX_COMPILER MATCHES "/em\\+\\+(-[a-zA-Z0-9.])?$"
++     OR CMAKE_SYSTEM_NAME MATCHES "^(iOS|tvOS|watchOS|visionOS)$")
+     set(PCRE2_JIT_OPTION  "-DPCRE2_SUPPORT_JIT=OFF")
+   else()
+     set(PCRE2_JIT_OPTION  "-DPCRE2_SUPPORT_JIT=ON")
