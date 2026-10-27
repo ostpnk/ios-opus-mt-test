@@ -41,6 +41,13 @@ CI (`.github/workflows/build.yml`) runs on every push to `main` and on manual di
 - `patches/marian-TargetArch-arm64.patch`: Marian's architecture detection
   predates Apple Silicon and rejects `CMAKE_OSX_ARCHITECTURES=arm64`
   ("Invalid OS X arch name"); it now reports it as `armv8`, like aarch64.
+- `patches/marian-ExceptionWithCallStack-vla.patch`: two buffers in
+  Marian's backtrace helper were sized by non-`const` variables, i.e.
+  variable-length arrays, which Apple clang reports
+  (`-Wvla-cxx-extension`) and Marian's `-Werror` turns into errors. The
+  sizes are now `const`.
+- `CMAKE_POLICY_VERSION_MINIMUM=3.5` (set by `build.sh`): CMake 4 no longer
+  configures cpuinfo's bundled clog, which declares an older minimum.
 
 ## Licences
 

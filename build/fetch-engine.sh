@@ -44,6 +44,7 @@ apply() {
   fi
 }
 apply "$DEST" "$ROOT/patches/marian-TargetArch-arm64.patch"
+apply "$DEST" "$ROOT/patches/marian-ExceptionWithCallStack-vla.patch"
 apply "$DEST/inference/marian-fork/src/3rd_party/sentencepiece" \
   "$ROOT/patches/sentencepiece-clang20-kAnyType.patch"
 
