@@ -4,3 +4,4 @@
 /models/
 /opus-cache/
 /out-opus/
+__pycache__/
