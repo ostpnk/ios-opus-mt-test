@@ -11,7 +11,7 @@ eng-ces opus-2021-02-19  # chrF 0.663
 eng-dan opus+bt-2021-04-13  # chrF 0.754
 eng-deu opus-2021-02-22  # chrF 0.655
 eng-ell opus+bt-2021-04-13  # chrF 0.740
-eng-fin opusTCv20210807+bt-2021-11-08  # chrF 0.643
+eng-fin opus+bt-2021-03-09  # the best-scoring one, 2021-11-08, is transformer-big
 eng-fra opus-2021-02-22  # chrF 0.671
 eng-hun opus+bt-2021-04-13  # chrF 0.631
 eng-ita opus+bt-2021-04-14  # chrF 0.696
@@ -21,7 +21,7 @@ eng-por opus-2021-02-18  # chrF 0.652
 eng-ron opus+bt-2021-03-07  # chrF 0.678
 eng-spa opus+bt-2021-04-10  # chrF 0.721
 eng-swe opus+bt-2021-04-14  # chrF 0.747
-fin-eng opusTCv20210807+bt-2021-12-08  # chrF 0.723
+fin-eng opus+bt-2021-04-30  # the best-scoring one, 2021-12-08, is transformer-big
 fra-eng opus-2021-02-19  # chrF 0.724
 hun-eng opus+bt-2021-04-30  # chrF 0.677
 ita-eng opus+bt-2021-04-30  # chrF 0.797

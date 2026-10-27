@@ -154,128 +154,139 @@ def main():
     catalog, qa, failed = [], [], []
     with Bergamot(args.library) as bt:
         for pair, release in directions:
-            src3, trg3 = pair.split("-")
-            (src, src_name), (trg, trg_name) = LANGUAGES[src3], LANGUAGES[trg3]
-            bundle_id = f"opus-{src}-{trg}"
-            source_url = f"{TATOEBA}/{pair}/{release}.zip"
-            print(f"{bundle_id}: {source_url}", flush=True)
-            archive = fetch(source_url, args.cache / f"{pair}-{release}.zip")
+            # A direction that fails to convert, has no test file or
+            # fails the quality gate is left out (recorded in qa.json);
+            # the others are still published.
+            try:
+                src3, trg3 = pair.split("-")
+                (src, src_name), (trg, trg_name) = LANGUAGES[src3], LANGUAGES[trg3]
+                bundle_id = f"opus-{src}-{trg}"
+                source_url = f"{TATOEBA}/{pair}/{release}.zip"
+                print(f"{bundle_id}: {source_url}", flush=True)
+                archive = fetch(source_url, args.cache / f"{pair}-{release}.zip")
 
-            with tempfile.TemporaryDirectory() as tmp:
-                tmp = Path(tmp)
-                with zipfile.ZipFile(archive) as z:
-                    names = z.namelist()
-                    npz = next(n for n in names if n.endswith("best-perplexity.npz"))
-                    vocab = next(n for n in names if n.endswith(".vocab.yml"))
-                    for name in [npz, vocab, "source.spm", "target.spm", "LICENSE", "README.md"]:
-                        z.extract(name, tmp)
-                readme = (tmp / "README.md").read_text(encoding="utf-8")
+                with tempfile.TemporaryDirectory() as tmp:
+                    tmp = Path(tmp)
+                    with zipfile.ZipFile(archive) as z:
+                        names = z.namelist()
+                        npz = next(n for n in names if n.endswith("best-perplexity.npz"))
+                        vocab = next(n for n in names if n.endswith(".vocab.yml"))
+                        for name in [npz, vocab, "source.spm", "target.spm", "LICENSE", "README.md"]:
+                            z.extract(name, tmp)
+                    readme = (tmp / "README.md").read_text(encoding="utf-8")
 
-                convert(tmp / npz, tmp / vocab, tmp / "source.spm", tmp / "target.spm",
-                        tmp / "bergamot.npz", log=lambda m: print(f"  {m}", flush=True))
-                subprocess.run(
-                    [args.marian_conv, "-f", str(tmp / "bergamot.npz"),
-                     "-t", str(tmp / "model.intgemm8.bin"), "--gemm-type", "intgemm8"],
-                    check=True, capture_output=True,
-                )
+                    convert(tmp / npz, tmp / vocab, tmp / "source.spm", tmp / "target.spm",
+                            tmp / "bergamot.npz", log=lambda m: print(f"  {m}", flush=True))
+                    subprocess.run(
+                        [args.marian_conv, "-f", str(tmp / "bergamot.npz"),
+                         "-t", str(tmp / "model.intgemm8.bin"), "--gemm-type", "intgemm8"],
+                        check=True, capture_output=True,
+                    )
 
-                # Quality gate.
-                test = fetch(f"{TATOEBA}/{pair}/{release}.test.txt",
-                             args.cache / f"{pair}-{release}.test.txt")
-                triples = read_test(test.read_text(encoding="utf-8"), args.qa_sentences)
-                model = bt.load_model(
-                    config_yaml("model.intgemm8.bin", ["source.spm", "target.spm"]), str(tmp)
-                )
-                ours = bt.translate(model, [t[0] for t in triples])
-                refs = [t[1] for t in triples]
-                original = chrf([t[2] for t in triples], refs)
-                converted = chrf(ours, refs)
-                ok = converted >= original - args.qa_tolerance
-                result = {
-                    "id": bundle_id, "release": release, "sentences": len(triples),
-                    "chrfOriginal": round(original, 4), "chrfConverted": round(converted, 4),
-                    "passed": ok,
+                    # Quality gate.
+                    test = fetch(f"{TATOEBA}/{pair}/{release}.test.txt",
+                                 args.cache / f"{pair}-{release}.test.txt")
+                    triples = read_test(test.read_text(encoding="utf-8"), args.qa_sentences)
+                    model = bt.load_model(
+                        config_yaml("model.intgemm8.bin", ["source.spm", "target.spm"]), str(tmp)
+                    )
+                    try:
+                        ours = bt.translate(model, [t[0] for t in triples])
+                    finally:
+                        bt.free_model(model)
+                    refs = [t[1] for t in triples]
+                    original = chrf([t[2] for t in triples], refs)
+                    converted = chrf(ours, refs)
+                    ok = converted >= original - args.qa_tolerance
+                    result = {
+                        "id": bundle_id, "release": release, "sentences": len(triples),
+                        "chrfOriginal": round(original, 4), "chrfConverted": round(converted, 4),
+                        "passed": ok,
+                    }
+                    qa.append(result)
+                    print(f"  QA on {len(triples)} sentences: original {original:.3f}, "
+                          f"converted {converted:.3f} -> {'pass' if ok else 'FAIL'}", flush=True)
+                    if not ok:
+                        failed.append(bundle_id)
+                        continue
+
+                    published = tatoeba_chrf(readme, pair)
+                    source_md = (
+                        f"# {bundle_id}\n\n"
+                        f"OPUS-MT model {pair} from Helsinki-NLP's Tatoeba Translation "
+                        f"Challenge (Jörg Tiedemann and colleagues, University of Helsinki), "
+                        f"release `{release}`: {source_url}\n\n"
+                        "Licensed under Creative Commons Attribution 4.0 (LICENSE, as "
+                        "released). Please credit Helsinki-NLP / OPUS-MT when you use it. "
+                        "Cite: Tiedemann, J. (2020) \"The Tatoeba Translation Challenge\"; "
+                        "Tiedemann & Thottingal (2020) \"OPUS-MT — Building open translation "
+                        "services for the World\".\n\n"
+                        "## Changes\n\n"
+                        "Converted for Mozilla's Bergamot engine: the tied embedding was "
+                        "re-indexed to SentencePiece's numbering (separate source and target "
+                        "embeddings, output tied to the target one) and the model quantized to "
+                        "int8 with Marian's marian-conv (`--gemm-type intgemm8`). Weights are "
+                        "otherwise as released; source.spm, target.spm, LICENSE and README.md "
+                        "are unmodified.\n\n"
+                        "## Quality\n\n"
+                        f"Published chrF on Tatoeba-test: {published}. Checked after "
+                        f"conversion on the first {len(triples)} sentences of the release's "
+                        f"own test file: chrF {original:.3f} for the original model's "
+                        f"translations, {converted:.3f} for this one (greedy, int8).\n"
+                    ).encode()
+                    packed = [
+                        (name, (tmp / name).read_bytes())
+                        for name in ["model.intgemm8.bin", "source.spm", "target.spm",
+                                     "LICENSE", "README.md"]
+                    ] + [("SOURCE.md", source_md)]
+
+                path = out / "bundles" / f"{bundle_id}.tar.gz"
+                deterministic_tar_gz(path, bundle_id, packed)
+                data = path.read_bytes()
+                entry = {
+                    "id": bundle_id,
+                    "name": f"{src_name} → {trg_name} (OPUS-MT)",
+                    "sourceLanguage": src,
+                    "targetLanguage": trg,
+                    "engineId": "bergamot",
+                    "family": "opus-mt",
+                    "license": "CC-BY-4.0",
+                    # CC BY allows commercial use; it requires attribution
+                    # (SOURCE.md says how).
+                    "commercialUse": True,
                 }
-                qa.append(result)
-                print(f"  QA on {len(triples)} sentences: original {original:.3f}, "
-                      f"converted {converted:.3f} -> {'pass' if ok else 'FAIL'}", flush=True)
-                if not ok:
-                    failed.append(bundle_id)
-                    continue
-
-                published = tatoeba_chrf(readme, pair)
-                source_md = (
-                    f"# {bundle_id}\n\n"
-                    f"OPUS-MT model {pair} from Helsinki-NLP's Tatoeba Translation "
-                    f"Challenge (Jörg Tiedemann and colleagues, University of Helsinki), "
-                    f"release `{release}`: {source_url}\n\n"
-                    "Licensed under Creative Commons Attribution 4.0 (LICENSE, as "
-                    "released). Please credit Helsinki-NLP / OPUS-MT when you use it. "
-                    "Cite: Tiedemann, J. (2020) \"The Tatoeba Translation Challenge\"; "
-                    "Tiedemann & Thottingal (2020) \"OPUS-MT — Building open translation "
-                    "services for the World\".\n\n"
-                    "## Changes\n\n"
-                    "Converted for Mozilla's Bergamot engine: the tied embedding was "
-                    "re-indexed to SentencePiece's numbering (separate source and target "
-                    "embeddings, output tied to the target one) and the model quantized to "
-                    "int8 with Marian's marian-conv (`--gemm-type intgemm8`). Weights are "
-                    "otherwise as released; source.spm, target.spm, LICENSE and README.md "
-                    "are unmodified.\n\n"
-                    "## Quality\n\n"
-                    f"Published chrF on Tatoeba-test: {published}. Checked after "
-                    f"conversion on the first {len(triples)} sentences of the release's "
-                    f"own test file: chrF {original:.3f} for the original model's "
-                    f"translations, {converted:.3f} for this one (greedy, int8).\n"
-                ).encode()
-                packed = [
-                    (name, (tmp / name).read_bytes())
-                    for name in ["model.intgemm8.bin", "source.spm", "target.spm",
-                                 "LICENSE", "README.md"]
-                ] + [("SOURCE.md", source_md)]
-
-            path = out / "bundles" / f"{bundle_id}.tar.gz"
-            deterministic_tar_gz(path, bundle_id, packed)
-            data = path.read_bytes()
-            entry = {
-                "id": bundle_id,
-                "name": f"{src_name} → {trg_name} (OPUS-MT)",
-                "sourceLanguage": src,
-                "targetLanguage": trg,
-                "engineId": "bergamot",
-                "family": "opus-mt",
-                "license": "CC-BY-4.0",
-                # CC BY allows commercial use; it requires attribution
-                # (SOURCE.md says how).
-                "commercialUse": True,
-            }
-            if published is not None:
-                entry["quality"] = {"metric": "chrF-tatoeba", "score": published}
-            entry.update({
-                "downloadUrl": f"{args.release_url}/{path.name}",
-                "expectedDownloadBytes": len(data),
-                "archiveSha256": sha256(data),
-                "archiveFormat": "tarGz",
-                "modelRoot": bundle_id,
-                "files": [
-                    {"relativePath": f"{bundle_id}/{name}", "sha256": sha256(blob)}
-                    for name, blob in sorted(packed)
-                ],
-                "engineConfig": {
-                    "model": "model.intgemm8.bin",
-                    "vocabs": ["source.spm", "target.spm"],
-                    **ENGINE_CONFIG,
-                },
-            })
-            catalog.append(entry)
-            print(f"  {len(data) / 1e6:.1f} MB", flush=True)
+                if published is not None:
+                    entry["quality"] = {"metric": "chrF-tatoeba", "score": published}
+                entry.update({
+                    "downloadUrl": f"{args.release_url}/{path.name}",
+                    "expectedDownloadBytes": len(data),
+                    "archiveSha256": sha256(data),
+                    "archiveFormat": "tarGz",
+                    "modelRoot": bundle_id,
+                    "files": [
+                        {"relativePath": f"{bundle_id}/{name}", "sha256": sha256(blob)}
+                        for name, blob in sorted(packed)
+                    ],
+                    "engineConfig": {
+                        "model": "model.intgemm8.bin",
+                        "vocabs": ["source.spm", "target.spm"],
+                        **ENGINE_CONFIG,
+                    },
+                })
+                catalog.append(entry)
+                print(f"  {len(data) / 1e6:.1f} MB", flush=True)
+            except Exception as e:  # noqa: BLE001 — any failure skips the direction
+                print(f"  skipped: {type(e).__name__}: {e}", flush=True)
+                qa.append({"id": f"{pair} {release}", "error": f"{type(e).__name__}: {e}"})
+                failed.append(f"{pair} {release}")
 
     (out / "catalog.json").write_text(json.dumps(catalog, indent=1, ensure_ascii=False) + "\n")
     (out / "qa.json").write_text(json.dumps(qa, indent=1) + "\n")
     sums = [f"{sha256(p.read_bytes())}  {p.name}" for p in sorted((out / "bundles").iterdir())]
     sums += [f"{sha256((out / f).read_bytes())}  {f}" for f in ["catalog.json", "qa.json"]]
     (out / "SHA256SUMS").write_text("\n".join(sums) + "\n")
-    print(f"{len(catalog)} bundles, {len(failed)} failed the quality gate: {failed}", flush=True)
-    if failed:
+    print(f"{len(catalog)} bundles; {len(failed)} left out: {failed}", flush=True)
+    if not catalog:
         sys.exit(1)
 
 

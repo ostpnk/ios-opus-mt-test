@@ -65,6 +65,10 @@ class Bergamot:
         self._models.append(model)
         return model
 
+    def free_model(self, model):
+        self._models.remove(model)
+        self._lib.bt_model_free(model)
+
     def translate(self, model, texts, pivot=None, html=False):
         if not texts:
             return []
