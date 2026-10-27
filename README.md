@@ -45,7 +45,7 @@ models.
 | iOS device (arm64) | `build/build.sh ios` | build only |
 | iOS simulator (arm64) | `build/build.sh ios-sim` | in a simulator (best effort) |
 | Linux (x86-64) | `build/build.sh linux` | yes, native |
-| Android (arm64-v8a, API 28+) | `build/build.sh android` | build only (tested on a phone over adb) |
+| Android (arm64-v8a, API 24+) | `build/build.sh android` | build only (tested on a phone over adb) |
 
 CI (`.github/workflows/build.yml`) runs on every push to `main` and on manual dispatch.
 
@@ -64,8 +64,12 @@ CI (`.github/workflows/build.yml`) runs on every push to `main` and on manual di
   sources would include Marian's headers with the NEON/SSE-emulation code
   switched off. `build.sh` reads them from the first configure and passes
   them to the whole build.
-- **Android needs API 28**: Marian's bundled pathie-cpp uses `iconv`/`glob`
-  (bionic API 28) and `nl_langinfo` (API 26).
+- `patches/marian-pathie-android-api24.patch`: Android API 24 (Flutter's
+  minimum) instead of 28. Marian's bundled pathie-cpp converted filenames
+  with `nl_langinfo`/`iconv` (bionic API 26/28) and offered `glob` (API 28).
+  Android filenames are always UTF-8, so it now treats Android like Apple
+  (no conversion), leaves `iconv` out below API 28, and `glob` — which
+  Marian never calls — fails with `ENOSYS` there.
 - `patches/sentencepiece-clang20-kAnyType.patch`: clang 20 (NDK r29) rejects
   a `constexpr` enum constant outside the enum's range in SentencePiece's
   trainer (never used for translation, but linked).

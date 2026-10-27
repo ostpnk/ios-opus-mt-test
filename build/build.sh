@@ -55,11 +55,11 @@ case "$PLATFORM" in
     ;;
   android)
     NDK="${ANDROID_NDK:-${ANDROID_NDK_LATEST_HOME:?set ANDROID_NDK}}"
-    # API 28: Marian's bundled pathie-cpp calls iconv/glob (bionic API 28)
-    # and nl_langinfo (API 26).
+    # API 24, Flutter's own minimum: patches/marian-pathie-android-api24
+    # removes pathie-cpp's iconv/glob (bionic API 28) and nl_langinfo (26).
     PLATFORM_FLAGS=(
       -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"
-      -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28
+      -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24
       -DANDROID_STL=c++_static
       -DBUILD_ARCH=armv8-a
     )
