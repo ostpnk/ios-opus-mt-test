@@ -101,7 +101,9 @@ fi
 echo "Marian definitions shared with the whole build: $DEFS"
 configure -DCMAKE_CXX_FLAGS="$DEFS"
 
-cmake --build "$BUILD" --target translator-cli -- -j "$JOBS"
+# -k 0: keep building past a failure, so one run reports every error
+# instead of the first (each CI round trip rebuilds Marian from scratch).
+cmake --build "$BUILD" --target translator-cli -- -j "$JOBS" -k 0
 
 mkdir -p "$OUT/bin" "$OUT/lib"
 cp "$BUILD/src/app/translator-cli" "$OUT/bin/"
