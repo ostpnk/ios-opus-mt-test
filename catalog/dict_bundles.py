@@ -107,10 +107,19 @@ def stage(conn, edition, path, languages, fold):
 
     count = 0
     # Outside the English edition, a page's translation table is attached
-    # to every part of speech on it ("pala" noun and verb alike): a table
-    # seen for the same word just before is skipped, keeping it under the
-    # first part of speech only.
-    last_table = (None, None)
+    # to every part of speech on it (Italian "essere" noun and verb alike,
+    # the noun first). Such a table is kept once, with no part of speech,
+    # since it can't be told which one it belongs to: the rows of the last
+    # table wait in `pending` until the next entry shows whether it repeats.
+    pending = None  # [word, signature, rows, shared]
+
+    def settle():
+        nonlocal pending
+        if pending is not None:
+            _, _, table_rows, shared = pending
+            rows.extend((r[0], r[1], r[2], "", *r[4:]) if shared else r for r in table_rows)
+            pending = None
+
     with gzip.open(path, "rt", encoding="utf-8") as lines:
         for line in lines:
             try:
@@ -162,10 +171,13 @@ def stage(conn, edition, path, languages, fold):
             # Tables: this edition's own word, translated; and inverted.
             table = entry.get("translations") or []
             signature = json.dumps(table, sort_keys=True) if table else None
-            if signature is not None and last_table == (word, signature):
+            if (signature is not None and pending is not None
+                    and pending[:2] == [word, signature]):
+                pending[3] = True
                 table = []
-            elif signature is not None:
-                last_table = (word, signature)
+            else:
+                settle()
+            table_rows = []
             if code == edition:
                 groups = {}
                 for t in table:
@@ -181,17 +193,20 @@ def stage(conn, edition, path, languages, fold):
                             item["tags"] = t["tags"]
                         groups.setdefault((tgt, label), []).append(item)
                         inverted = {"l": label, "t": [{"w": word}]}
-                        rows.append((f"{tgt}-{edition}", fold(translated), translated, pos,
+                        table_rows.append((f"{tgt}-{edition}", fold(translated), translated, pos,
                                      json.dumps(inverted, ensure_ascii=False),
                                      f"{edition}:inverted", translated.lower()))
                 for (tgt, label), items in groups.items():
                     data = {"l": label, "t": items} if label else {"t": items}
-                    rows.append((f"{edition}-{tgt}", fold(word), word, pos,
-                                 json.dumps(data, ensure_ascii=False),
-                                 f"{edition}:tables", lower))
+                    table_rows.append((f"{edition}-{tgt}", fold(word), word, pos,
+                                       json.dumps(data, ensure_ascii=False),
+                                       f"{edition}:tables", lower))
+            if table_rows:
+                pending = [word, signature, table_rows, False]
 
             if len(rows) + len(forms) > 200_000:
                 flush()
+    settle()
     flush()
     conn.commit()
     return count
