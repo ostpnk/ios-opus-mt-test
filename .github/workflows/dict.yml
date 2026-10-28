@@ -4,7 +4,9 @@ name: dict
 # (catalog/dict_bundles.py) and publishes them across releases <tag>-p1,
 # <tag>-p2, ... (a release holds at most 1,000 files), each with
 # catalog.json and SHA256SUMS. A push touching the scripts builds from two
-# small editions only and publishes nothing.
+# small editions only and publishes nothing; a manual run with `full`
+# builds everything and publishes nothing, keeping a few sample bundles as
+# an artifact to inspect first.
 on:
   push:
     branches: [main]
@@ -13,6 +15,11 @@ on:
       - '.github/workflows/dict.yml'
     tags: ['dict-*']
   workflow_dispatch:
+    inputs:
+      full:
+        description: Build from every edition (publishes nothing)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,6 +43,9 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/dict-* ]]; then
             editions=()
             url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME-p{part}"
+          elif [[ "${{ inputs.full }}" == "true" ]]; then
+            editions=()
+            url="https://example.invalid/dry-run-p{part}"
           else
             editions=(--editions it,id)
             url="https://example.invalid/smoke-p{part}"
@@ -52,7 +62,14 @@ jobs:
           path: |
             /mnt/dict/out/catalog.json
             /mnt/dict/out/parts.json
+            /mnt/dict/out/SHA256SUMS
             dict.log
+            /mnt/dict/out/bundles/dict-it-en.tar.gz
+            /mnt/dict/out/bundles/dict-en-it.tar.gz
+            /mnt/dict/out/bundles/dict-it-de.tar.gz
+            /mnt/dict/out/bundles/dict-de-it.tar.gz
+            /mnt/dict/out/bundles/forms-it.tar.gz
+            /mnt/dict/out/bundles/dict-hr-en.tar.gz
           if-no-files-found: ignore
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/dict-')
