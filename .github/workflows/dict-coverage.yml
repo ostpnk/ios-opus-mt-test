@@ -1,0 +1,36 @@
+name: dict-coverage
+
+# Measures how much a Wiktionary-built dictionary would cover per language
+# pair (catalog/dict_coverage.py) and uploads coverage.json as an artifact.
+# Publishes nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'catalog/dict_coverage.py'
+      - '.github/workflows/dict-coverage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Coverage
+        run: |
+          python3 -I catalog/dict_coverage.py --out out-dict \
+            --languages-from https://github.com/ostpnk/translate-engine/releases/download/models-2026-10-27/catalog.json \
+            2>&1 | tee coverage.log
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dict-coverage
+          path: |
+            out-dict/coverage.json
+            coverage.log
+          if-no-files-found: ignore
