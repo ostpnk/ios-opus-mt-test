@@ -1,0 +1,72 @@
+name: dict
+
+# A dict-* tag builds every Wiktionary dictionary direction and forms pack
+# (catalog/dict_bundles.py) and publishes them across releases <tag>-p1,
+# <tag>-p2, ... (a release holds at most 1,000 files), each with
+# catalog.json and SHA256SUMS. A push touching the scripts builds from two
+# small editions only and publishes nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'catalog/dict_*'
+      - '.github/workflows/dict.yml'
+    tags: ['dict-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dict:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disk
+        # The staging database and the dumps need tens of GB: /mnt has room.
+        run: |
+          df -h / /mnt
+          sudo mkdir -p /mnt/dict && sudo chown "$USER" /mnt/dict
+      - name: Build
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/dict-* ]]; then
+            editions=()
+            url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME-p{part}"
+          else
+            editions=(--editions it,id)
+            url="https://example.invalid/smoke-p{part}"
+          fi
+          python3 -I catalog/dict_bundles.py --out /mnt/dict/out --work /mnt/dict/work \
+            --release-url "$url" --dated "$(date -u +%Y-%m-%d)" \
+            --languages-from https://github.com/ostpnk/translate-engine/releases/download/models-2026-10-27/catalog.json \
+            "${editions[@]}" 2>&1 | tee dict.log
+          df -h /mnt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dict-catalog
+          path: |
+            /mnt/dict/out/catalog.json
+            /mnt/dict/out/parts.json
+            dict.log
+          if-no-files-found: ignore
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/dict-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cd /mnt/dict/out
+          for part in $(python3 -I -c 'import json; print(" ".join(json.load(open("parts.json"))))'); do
+            tag="$GITHUB_REF_NAME-p$part"
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Dictionaries $GITHUB_REF_NAME (part $part)" \
+              --notes "Bilingual dictionaries and inflected-forms packs built from Wiktionary via kaikki.org (wiktextract), CC BY-SA 4.0 — credit the Wiktionary contributors. catalog.json (in every part) lists all parts' files for core_dictionary."
+            python3 -I -c "import json,sys; print('\n'.join(json.load(open('parts.json'))[sys.argv[1]]))" "$part" \
+              | sed 's|^|bundles/|' | xargs -n 100 gh release upload "$tag" --repo "$GITHUB_REPOSITORY"
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" catalog.json SHA256SUMS
+          done
