@@ -30,7 +30,15 @@ Per source language (forms-<lang>.tar.gz, folder forms-<lang>/):
   form, lemma), WITHOUT ROWID — inflected form -> lemma, one row per
   (form, lemma), tags a JSON list of its readings (each
   a list of tags; [[]] when the source gave none), kept only for lemmas
-  some dictionary from that language has.
+  some dictionary from that language has, and only for forms in use: ones
+  whose folded key is a word of the language's full FrequencyWords list
+  (film subtitles). Wiktionary's tables generate every form a lemma has —
+  25M for Finnish (368 MB), 1.7M for Italian, most never written (86% of
+  Italian's aren't once among 800k distinct subtitle words) — and the
+  filter keeps those people meet (Italian 23 -> 3.3 MB). Every form is
+  kept for a language with no list, for one whose list isn't made of the
+  words Wiktionary lists (UNSEGMENTED), and for a form in a script the
+  list barely uses (Serbian's is 94% Latin; its Cyrillic forms stay).
 
 The catalog carries each direction's coverage: the share of the source
 language's 1,000 and 10,000 most frequent words (FrequencyWords) that
@@ -51,10 +59,15 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from dict_coverage import EDITIONS, base, dump_url, fetch, frequency_lists  # noqa: E402
+from dict_coverage import (EDITIONS, base, dump_url, fetch, frequency_codes,  # noqa: E402
+                           frequency_lists, frequency_vocabulary)
 from mozilla_bundles import deterministic_tar_gz, sha256  # noqa: E402
 
 SERBO_CROATIAN = {"sh": ["bs", "hr", "sr"]}
+# Languages whose subtitle lists can't filter forms: written without spaces,
+# so a segmenter cut the words (Japanese 食べ|ます), or with particles
+# attached to the word (Korean).
+UNSEGMENTED = {"ja", "ko", "th", "zh"}
 NAMES = {}  # filled from the translation catalog: language tag -> English name
 
 # wiktextract tags that describe inflection tables, not a form.
@@ -93,6 +106,23 @@ class Folder:
     def subset(self, chars):
         """The part of the table these (lowercased) characters use."""
         return {c: f for c, f in self.table.items() if c in chars}
+
+
+def script_of(word):
+    """The Unicode script of a word's first letter (LATIN, CYRILLIC, ...)."""
+    for c in word:
+        if c.isalpha():
+            return unicodedata.name(c, "").split(" ")[0]
+    return ""
+
+
+def list_scripts(words):
+    """The scripts at least a tenth of a frequency list's words are in."""
+    counts = {}
+    for w in words:
+        script = script_of(w)
+        counts[script] = counts.get(script, 0) + 1
+    return {s for s, n in counts.items() if n >= len(words) / 10}
 
 
 def targets_of(code):
@@ -309,6 +339,7 @@ def main():
     NAMES.update({"bs": "Bosnian", "hr": "Croatian", "sr": "Serbian", "sh": "Serbo-Croatian"})
     print(f"{len(languages)} languages", flush=True)
     freq = frequency_lists(languages, args.work, 10000)
+    freq_codes = frequency_codes(languages)
 
     fold = Folder()
     staging = args.work / "staging.sqlite"
@@ -398,13 +429,19 @@ def main():
         """)
         lemma_keys = headword_keys[src]
         frequent = {fold(w) for w in freq.get(src, [])}
+        vocabulary = (frequency_vocabulary(freq_codes[src], args.work)
+                      if src in freq_codes and src not in UNSEGMENTED else None)
+        in_use = None if vocabulary is None else {fold(w) for w in vocabulary}
+        scripts = None if vocabulary is None else list_scripts(vocabulary)
+        del vocabulary
+        dropped = 0
         # One row per (form, lemma), with every reading of it: German
         # "schöne" is several cases and genders of "schön". Rows stream in
         # (key, form, lemma) order, so a group is adjacent and nothing but
         # the current group is held in memory (German has millions).
         # Untagged readings are dropped from a group that has tagged ones.
         mapping, chars, batch, count = {}, set(), [], 0
-        group, readings = None, []
+        group, readings, skipped = None, [], None
 
         def emit():
             nonlocal count
@@ -422,6 +459,12 @@ def main():
                 "ORDER BY key, form, lemma, tags", (src,)):
             if (key, form, lemma) != group:
                 if fold(lemma) not in lemma_keys:
+                    continue
+                if (in_use is not None and key not in in_use
+                        and script_of(form) in scripts):
+                    if (key, form, lemma) != skipped:
+                        skipped = (key, form, lemma)
+                        dropped += 1
                     continue
                 emit()
                 group, readings = (key, form, lemma), []
@@ -451,7 +494,8 @@ def main():
             "id": bundle_id, "mapping": mapping, "forms": count,
             "packed": pack(args.out, bundle_id, db_path, source_md, license_text,
                            args.release_url)}
-        print(f"  {bundle_id}: {count} forms, "
+        print(f"  {bundle_id}: {count} forms"
+              f"{'' if in_use is None else f' ({dropped} not in use dropped)'}, "
               f"{forms_by_lang[src]['packed']['expectedDownloadBytes'] / 1e6:.1f} MB", flush=True)
 
     # Catalog, with each bundle's release part filled into its URL.

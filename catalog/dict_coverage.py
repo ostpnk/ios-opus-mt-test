@@ -63,36 +63,62 @@ def base(tag):
     return tag.split("-")[0].lower()
 
 
-def frequency_lists(languages, cache, top):
-    """The top words per language, lowercased, most frequent first."""
+FREQUENCY_ALIASES = {"zh": "zh_cn", "nb": "no", "sh": "sr"}
+
+
+def frequency_codes(languages):
+    """Language -> FrequencyWords' code, for the languages it has lists for."""
     request = urllib.request.Request(FREQUENCY_LISTING, headers={"User-Agent": "coverage"})
     with urllib.request.urlopen(request, timeout=60) as response:
         available = {item["name"] for item in json.load(response)}
-    aliases = {"zh": "zh_cn", "nb": "no", "sh": "sr"}
-    lists = {}
-    for lang in sorted(languages):
-        code = lang if lang in available else aliases.get(lang)
-        if code not in available:
+    codes = {}
+    for lang in languages:
+        code = lang if lang in available else FREQUENCY_ALIASES.get(lang)
+        if code in available:
+            codes[lang] = code
+    return codes
+
+
+def frequency_file(code, cache, names):
+    for name in names:
+        try:
+            return fetch(f"{FREQUENCY}/{code}/{code}_{name}.txt", cache / f"freq-{code}_{name}.txt")
+        except urllib.error.HTTPError:
             continue
-        path = None
-        for name in (f"{code}_50k.txt", f"{code}_full.txt"):
-            try:
-                path = fetch(f"{FREQUENCY}/{code}/{name}", cache / f"freq-{name}")
-                break
-            except urllib.error.HTTPError:
-                continue
+    return None
+
+
+def frequency_words(path):
+    """A list's words, lowercased, most frequent first, each once."""
+    seen = set()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        parts = line.split()
+        if parts and parts[0].lower() not in seen:
+            seen.add(parts[0].lower())
+            yield parts[0].lower()
+
+
+def frequency_lists(languages, cache, top):
+    """The top words per language, lowercased, most frequent first."""
+    lists = {}
+    for lang, code in sorted(frequency_codes(languages).items()):
+        path = frequency_file(code, cache, ("50k", "full"))
         if path is None:
             continue
-        words, seen = [], set()
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            parts = line.split()
-            if parts and parts[0].lower() not in seen:
-                seen.add(parts[0].lower())
-                words.append(parts[0].lower())
+        words = []
+        for word in frequency_words(path):
+            words.append(word)
             if len(words) == top:
                 break
         lists[lang] = words
     return lists
+
+
+def frequency_vocabulary(code, cache):
+    """Every word of the language's full list (film subtitles, ~0.5-2.5M
+    distinct words), lowercased; None if it has none."""
+    path = frequency_file(code, cache, ("full",))
+    return None if path is None else set(frequency_words(path))
 
 
 def translation_code(t):
