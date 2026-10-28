@@ -13,11 +13,12 @@ Serbo-Croatian ("sh") entries also serve Bosnian, Croatian and Serbian.
 
 Per direction (dict-<src>-<tgt>.tar.gz, folder dict-<src>-<tgt>/):
   dict.sqlite:
-    meta(key, value)            source, target, sources, fold (JSON)
-    entries(key, word, pos, senses)
+    meta(key, value)            source, target, sources, fold (JSON), schema
+    entries(key, word, pos, senses)  primary key (key, word, pos), WITHOUT
+      ROWID: stored sorted by it, so no separate index (a quarter smaller)
       key: the word lowercased and folded (accents off; see `fold` in meta,
            which lists exactly the per-character mapping used, so a reader
-           folds a query the same way); indexed.
+           folds a query the same way).
       senses: JSON list, each one of
         {"g": [gloss, ...], "tags": [...]}            (glosses, in tgt)
         {"l": label, "t": [{"w": word, "tags": [...]}, ...]}
@@ -25,8 +26,11 @@ Per direction (dict-<src>-<tgt>.tar.gz, folder dict-<src>-<tgt>/):
                                                         label in either language)
   LICENSE (CC BY-SA 4.0), SOURCE.md.
 Per source language (forms-<lang>.tar.gz, folder forms-<lang>/):
-  forms.sqlite: meta; forms(key, form, lemma, tags) — inflected form ->
-  lemma, kept only for lemmas some dictionary from that language has.
+  forms.sqlite: meta; forms(key, form, lemma, tags), primary key (key,
+  form, lemma), WITHOUT ROWID — inflected form -> lemma, one row per
+  (form, lemma), tags a JSON list of its readings (each
+  a list of tags; [[]] when the source gave none), kept only for lemmas
+  some dictionary from that language has.
 
 The catalog carries each direction's coverage: the share of the source
 language's 1,000 and 10,000 most frequent words (FrequencyWords) that
@@ -86,10 +90,9 @@ class Folder:
             out.append(f)
         return "".join(out)
 
-    def subset(self, words):
-        """The part of the table these (already lowercased) words use."""
-        used = {c for w in words for c in w}
-        return {c: f for c, f in self.table.items() if c in used}
+    def subset(self, chars):
+        """The part of the table these (lowercased) characters use."""
+        return {c: f for c, f in self.table.items() if c in chars}
 
 
 def targets_of(code):
@@ -326,7 +329,7 @@ def main():
     print("indexing", flush=True)
     conn.executescript("""
         CREATE INDEX staged_direction ON staged(direction, key, word, pos);
-        CREATE INDEX staged_forms_lang ON staged_forms(lang, key);
+        CREATE INDEX staged_forms_lang ON staged_forms(lang, key, form, lemma, tags);
     """)
 
     license_text = fetch(LICENSE_URL, args.work / "cc-by-sa-4.0.txt").read_bytes()
@@ -339,11 +342,12 @@ def main():
         db_path.unlink(missing_ok=True)
         db = sqlite3.connect(db_path)
         db.executescript("""
-            CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
             CREATE TABLE entries(key TEXT NOT NULL, word TEXT NOT NULL,
-                                 pos TEXT NOT NULL, senses TEXT NOT NULL);
+                                 pos TEXT NOT NULL, senses TEXT NOT NULL,
+                                 PRIMARY KEY (key, word, pos)) WITHOUT ROWID;
         """)
-        keys, lowers, sources, current, batch = set(), set(), set(), None, []
+        keys, chars, sources, current, batch = set(), set(), set(), None, []
         rows = []
 
         def emit():
@@ -358,13 +362,12 @@ def main():
                 current, batch = (key, word, pos), []
             batch.append(json.loads(data))
             keys.add(key)
-            lowers.add(lower)
+            chars.update(lower)
             sources.add(source)
         emit()
         db.executemany("INSERT INTO entries VALUES (?,?,?,?)", rows)
-        db.execute("CREATE INDEX entries_key ON entries(key)")
         meta = {"source": src, "target": tgt, "sources": json.dumps(sorted(sources)),
-                "fold": json.dumps(fold.subset(lowers), ensure_ascii=False, sort_keys=True),
+                "fold": json.dumps(fold.subset(chars), ensure_ascii=False, sort_keys=True),
                 "schema": "1"}
         db.executemany("INSERT INTO meta VALUES (?,?)", sorted(meta.items()))
         db.commit()
@@ -388,36 +391,54 @@ def main():
         db_path.unlink(missing_ok=True)
         db = sqlite3.connect(db_path)
         db.executescript("""
-            CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
             CREATE TABLE forms(key TEXT NOT NULL, form TEXT NOT NULL,
-                               lemma TEXT NOT NULL, tags TEXT NOT NULL);
+                               lemma TEXT NOT NULL, tags TEXT NOT NULL,
+                               PRIMARY KEY (key, form, lemma)) WITHOUT ROWID;
         """)
         lemma_keys = headword_keys[src]
         frequent = {fold(w) for w in freq.get(src, [])}
-        # Only what coverage needs: the frequent words' lemmas.
-        mapping, seen, tagged, rows, lowers = {}, set(), set(), [], set()
+        # One row per (form, lemma), with every reading of it: German
+        # "schöne" is several cases and genders of "schön". Rows stream in
+        # (key, form, lemma) order, so a group is adjacent and nothing but
+        # the current group is held in memory (German has millions).
+        # Untagged readings are dropped from a group that has tagged ones.
+        mapping, chars, batch, count = {}, set(), [], 0
+        group, readings = None, []
+
+        def emit():
+            nonlocal count
+            if group is None:
+                return
+            tagged = [r for r in readings if r]
+            batch.append((*group, json.dumps(tagged or [[]], ensure_ascii=False)))
+            count += 1
+            if len(batch) >= 100_000:
+                db.executemany("INSERT INTO forms VALUES (?,?,?,?)", batch)
+                batch.clear()
+
         for key, form, lemma, tags in conn.execute(
                 "SELECT key, form, lemma, tags FROM staged_forms WHERE lang = ? "
-                "ORDER BY key, form, lemma, tags = '[]'",
-                (src,)):
-            if fold(lemma) not in lemma_keys or (key, form, lemma, tags) in seen:
-                continue
-            if tags == "[]" and (key, form, lemma) in tagged:
-                continue  # Already there with its tags (sorted first).
-            seen.add((key, form, lemma, tags))
-            if tags != "[]":
-                tagged.add((key, form, lemma))
-            rows.append((key, form, lemma, tags))
-            lowers.add(form.lower())
-            if key in frequent:
-                mapping.setdefault(key, set()).add(fold(lemma))
-        if not rows:
+                "ORDER BY key, form, lemma, tags", (src,)):
+            if (key, form, lemma) != group:
+                if fold(lemma) not in lemma_keys:
+                    continue
+                emit()
+                group, readings = (key, form, lemma), []
+                chars.update(form.lower())
+                if key in frequent:
+                    mapping.setdefault(key, set()).add(fold(lemma))
+            reading = json.loads(tags)
+            if reading not in readings:
+                readings.append(reading)
+        emit()
+        if batch:
+            db.executemany("INSERT INTO forms VALUES (?,?,?,?)", batch)
+        if not count:
             db.close()
             continue
-        db.executemany("INSERT INTO forms VALUES (?,?,?,?)", rows)
-        db.execute("CREATE INDEX forms_key ON forms(key)")
         meta = {"language": src, "schema": "1",
-                "fold": json.dumps(fold.subset(lowers), ensure_ascii=False, sort_keys=True)}
+                "fold": json.dumps(fold.subset(chars), ensure_ascii=False, sort_keys=True)}
         db.executemany("INSERT INTO meta VALUES (?,?)", sorted(meta.items()))
         db.commit()
         db.execute("VACUUM")
@@ -427,10 +448,11 @@ def main():
             id=bundle_id, what=f"{NAMES.get(src, src)} inflected forms",
             dated=f" ({args.dated})" if args.dated else "", sources="forms and form-of senses")
         forms_by_lang[src] = {
-            "id": bundle_id, "mapping": mapping, "forms": len(rows),
+            "id": bundle_id, "mapping": mapping, "forms": count,
             "packed": pack(args.out, bundle_id, db_path, source_md, license_text,
                            args.release_url)}
-        print(f"  {bundle_id}: {len(rows)} forms", flush=True)
+        print(f"  {bundle_id}: {count} forms, "
+              f"{forms_by_lang[src]['packed']['expectedDownloadBytes'] / 1e6:.1f} MB", flush=True)
 
     # Catalog, with each bundle's release part filled into its URL.
     entries = []
