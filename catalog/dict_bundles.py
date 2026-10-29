@@ -9,7 +9,9 @@ kaikki.org extracts with wiktextract. An edition E gives:
   - tables: a word of E's translation table (E -> T), grouped by sense;
   - inverted tables: the same table read backwards (T -> E), the E word
     as the translation, under its sense label.
-Serbo-Croatian ("sh") entries also serve Bosnian, Croatian and Serbian.
+Serbo-Croatian ("sh") entries also serve Bosnian, Croatian and Serbian, and
+Norwegian ("no", Wiktionary's older heading for words both written
+standards share) is merged into Bokmål ("nb").
 
 Per direction (dict-<src>-<tgt>.tar.gz, folder dict-<src>-<tgt>/):
   dict.sqlite:
@@ -63,7 +65,8 @@ from dict_coverage import (EDITIONS, base, dump_date, dump_url, fetch, frequency
                            frequency_lists, frequency_vocabulary)
 from mozilla_bundles import deterministic_tar_gz, sha256  # noqa: E402
 
-SERBO_CROATIAN = {"sh": ["bs", "hr", "sr"]}
+# Wiktionary language code -> the languages its entries are built into.
+SERVED_AS = {"sh": ["bs", "hr", "sr"], "no": ["nb"]}
 # Languages whose subtitle lists can't filter forms: written without spaces,
 # so a segmenter cut the words (Japanese 食べ|ます), or with particles
 # attached to the word (Korean).
@@ -126,7 +129,7 @@ def list_scripts(words):
 
 
 def targets_of(code):
-    return SERBO_CROATIAN.get(code, [code])
+    return SERVED_AS.get(code, [code])
 
 
 def stage(conn, edition, path, languages, fold):
