@@ -6,7 +6,7 @@ name: dict
 # catalog.json and SHA256SUMS. A push touching the scripts builds from two
 # small editions only and publishes nothing; a manual run with `full`
 # builds everything and publishes nothing, keeping a few sample bundles as
-# an artifact to inspect first.
+# an artifact to inspect first. Publishing is resumable (publish_parts.py).
 on:
   push:
     branches: [main]
@@ -76,14 +76,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
+        # Resumable: rerunning the tag (or moving it) uploads only the files
+        # missing or changed on the releases.
         run: |
           cd /mnt/dict/out
-          for part in $(python3 -I -c 'import json; print(" ".join(json.load(open("parts.json"))))'); do
-            tag="$GITHUB_REF_NAME-p$part"
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "Dictionaries $GITHUB_REF_NAME (part $part)" \
-              --notes "Bilingual dictionaries and inflected-forms packs built from Wiktionary via kaikki.org (wiktextract), CC BY-SA 4.0 — credit the Wiktionary contributors. catalog.json (in every part) lists all parts' files for core_dictionary."
-            python3 -I -c "import json,sys; print('\n'.join(json.load(open('parts.json'))[sys.argv[1]]))" "$part" \
-              | sed 's|^|bundles/|' | xargs -n 100 gh release upload "$tag" --repo "$GITHUB_REPOSITORY"
-            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" catalog.json SHA256SUMS
-          done
+          python3 -I "$GITHUB_WORKSPACE/catalog/publish_parts.py" \
+            --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --target "$GITHUB_SHA"
