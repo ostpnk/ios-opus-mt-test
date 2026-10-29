@@ -51,7 +51,7 @@ jobs:
             url="https://example.invalid/smoke-p{part}"
           fi
           python3 -I catalog/dict_bundles.py --out /mnt/dict/out --work /mnt/dict/work \
-            --release-url "$url" --dated "$(date -u +%Y-%m-%d)" \
+            --release-url "$url" \
             --languages-from https://github.com/ostpnk/translate-engine/releases/download/models-2026-10-27/catalog.json \
             "${editions[@]}" 2>&1 | tee dict.log
           df -h /mnt

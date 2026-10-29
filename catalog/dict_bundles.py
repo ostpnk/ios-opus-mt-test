@@ -59,7 +59,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from dict_coverage import (EDITIONS, base, dump_url, fetch, frequency_codes,  # noqa: E402
+from dict_coverage import (EDITIONS, base, dump_date, dump_url, fetch, frequency_codes,  # noqa: E402
                            frequency_lists, frequency_vocabulary)
 from mozilla_bundles import deterministic_tar_gz, sha256  # noqa: E402
 
@@ -302,7 +302,7 @@ def pack(out_dir, bundle_id, db_path, source_md, license_text, release_url):
 SOURCE_MD = """# {id}
 
 {what}, built from Wiktionary by translate-engine's catalog/dict_bundles.py
-from kaikki.org's wiktextract extraction{dated} — {sources}.
+from kaikki.org's wiktextract extraction{dated}: {sources}.
 
 Wiktionary content is by the Wiktionary contributors and licensed under
 Creative Commons Attribution-ShareAlike 4.0 (LICENSE); this file is a
@@ -310,6 +310,12 @@ derivative of it and is licensed under the same terms. Credit: "Wiktionary
 contributors (wiktionary.org), via kaikki.org (Tatu Ylonen, Wiktextract:
 Wiktionary as Machine-Readable Structured Data, LREC 2022)".
 """
+
+
+def dated(dumps, editions):
+    """' (dumps: en 2026-10-25, it 2026-10-28)' for the editions used."""
+    known = [f"{e} {dumps[e]}" for e in sorted(editions) if dumps.get(e)]
+    return f" (dumps: {', '.join(known)})" if known else ""
 
 
 def main():
@@ -323,7 +329,6 @@ def main():
     parser.add_argument("--editions", default=",".join(EDITIONS))
     parser.add_argument("--assets-per-release", type=int, default=990)
     parser.add_argument("--keep-dumps", action="store_true")
-    parser.add_argument("--dated", default="")
     args = parser.parse_args()
     args.work.mkdir(parents=True, exist_ok=True)
     (args.out / "bundles").mkdir(parents=True, exist_ok=True)
@@ -351,8 +356,13 @@ def main():
         CREATE TABLE staged_forms(lang, key, form, lemma, tags);
     """)
     editions = args.editions.split(",")
+    # Each edition's dump date (kaikki.org's Last-Modified), for SOURCE.md:
+    # the build date would change every bundle on every rebuild of the same
+    # data, so republishing would upload them all again.
+    dumps = {}
     for edition in editions:
         path = fetch(dump_url(edition), args.work / f"{edition}wiktionary.jsonl.gz")
+        dumps[edition] = dump_date(path)
         count = stage(conn, edition, path, languages, fold)
         print(f"{edition}: {count} entries staged", flush=True)
         if not args.keep_dumps:
@@ -408,7 +418,8 @@ def main():
         bundle_id = f"dict-{src}-{tgt}"
         source_md = SOURCE_MD.format(
             id=bundle_id, what=f"{NAMES.get(src, src)} → {NAMES.get(tgt, tgt)} dictionary",
-            dated=f" ({args.dated})" if args.dated else "", sources=", ".join(sorted(sources)))
+            dated=dated(dumps, {s.split(":")[0] for s in sources}),
+            sources=", ".join(sorted(sources)))
         packed = pack(args.out, bundle_id, db_path, source_md, license_text, args.release_url)
         built.append({"id": bundle_id, "src": src, "tgt": tgt, "keys": keys,
                       "headwords": len(rows), "sources": sorted(sources), "packed": packed})
@@ -489,7 +500,7 @@ def main():
         bundle_id = f"forms-{src}"
         source_md = SOURCE_MD.format(
             id=bundle_id, what=f"{NAMES.get(src, src)} inflected forms",
-            dated=f" ({args.dated})" if args.dated else "", sources="forms and form-of senses")
+            dated=dated(dumps, dumps), sources="forms and form-of senses")
         forms_by_lang[src] = {
             "id": bundle_id, "mapping": mapping, "forms": count,
             "packed": pack(args.out, bundle_id, db_path, source_md, license_text,

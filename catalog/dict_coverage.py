@@ -27,6 +27,7 @@ Usage:
 """
 
 import argparse
+import email.utils
 import gzip
 import json
 import shutil
@@ -49,14 +50,26 @@ def dump_url(edition):
 
 
 def fetch(url, dest):
+    """Downloads url to dest once; the server's Last-Modified date, if any,
+    is kept beside it (dump_date)."""
     if dest.exists():
         return dest
     partial = dest.with_suffix(dest.suffix + ".part")
     request = urllib.request.Request(url, headers={"User-Agent": "translate-engine coverage"})
     with urllib.request.urlopen(request, timeout=600) as response, open(partial, "wb") as out:
         shutil.copyfileobj(response, out, length=1 << 20)
+        modified = response.headers.get("Last-Modified")
+    if modified:
+        date = email.utils.parsedate_to_datetime(modified).strftime("%Y-%m-%d")
+        dest.with_name(dest.name + ".date").write_text(date)
     partial.rename(dest)
     return dest
+
+
+def dump_date(dest):
+    """The date fetch recorded for dest (the dump's own, not the build's)."""
+    dated = dest.with_name(dest.name + ".date")
+    return dated.read_text().strip() if dated.exists() else None
 
 
 def base(tag):
