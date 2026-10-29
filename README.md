@@ -70,6 +70,16 @@ CI (`.github/workflows/build.yml`) runs on every push to `main` and on manual di
   Android filenames are always UTF-8, so it now treats Android like Apple
   (no conversion), leaves `iconv` out below API 28, and `glob` — which
   Marian never calls — fails with `ENOSYS` there.
+- `patches/marian-bergamot-Logger-process-wide.patch`: Bergamot's
+  `Logger` registered Marian's loggers ("general", "valid") in spdlog's
+  process-wide registry for every service and dropped them when the service
+  was freed, so a second service while another was alive failed ("logger
+  with name 'general' already exists"). That includes one left behind
+  unfreed: Android can end a Flutter app's isolates (Back on the home
+  route) and keep its process, and the next isolate's service then never
+  loaded a model. The loggers are now shared, created by the first service
+  and never dropped; `test_capi` creates services side by side, leaving one
+  unfreed, and translates with each.
 - `patches/sentencepiece-clang20-kAnyType.patch`: clang 20 (NDK r29) rejects
   a `constexpr` enum constant outside the enum's range in SentencePiece's
   trainer (never used for translation, but linked).

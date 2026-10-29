@@ -79,13 +79,28 @@ int main(int argc, char** argv) {
 
   bt_service* service = NULL;
   char* error = NULL;
+  bt_status s;
+
+  /* A failed load before any service exists: Marian's ABORT registers its
+     "general" logger itself when there's none, which used to make every
+     later bt_service_create fail ("logger with name 'general' already
+     exists"). */
+  {
+    bt_model* early = NULL;
+    s = bt_model_load("models:\n  - does-not-exist.bin\nvocabs:\n  - nope.spm\n  - nope.spm\n",
+                      "/nonexistent", &early, &error);
+    CHECK(s == BT_ERROR_MODEL_LOAD, "missing files, no service yet: %d", s);
+    bt_free_string(error);
+    error = NULL;
+  }
+
   CHECK(bt_service_create(0, &service, &error) == BT_OK, "bt_service_create: %s", error ? error : "");
   bt_free_string(error);
   error = NULL;
 
   /* --- errors are reported, never fatal --- */
   bt_model* bad = NULL;
-  bt_status s = bt_model_load(NULL, NULL, &bad, &error);
+  s = bt_model_load(NULL, NULL, &bad, &error);
   CHECK(s == BT_ERROR_INVALID_ARGUMENT, "NULL config: %d", s);
   bt_free_string(error);
   error = NULL;
@@ -147,6 +162,38 @@ int main(int argc, char** argv) {
   }
   bt_free_string(error);
   error = NULL;
+
+  /* --- services: any number in one process, side by side or one after
+     another, each translating. A host can lose a service without freeing it
+     (a Dart isolate killed with its worker), so one is leaked here too. --- */
+  {
+    const char* in[] = {"Ci vediamo domani?"};
+    int before = failures;
+    for (int round = 0; round < 3; round++) {
+      bt_service* other = NULL;
+      s = bt_service_create(0, &other, &error);
+      CHECK(s == BT_OK, "service %d beside the first: %d: %s", round, s, error ? error : "");
+      bt_free_string(error);
+      error = NULL;
+      if (s != BT_OK) continue;
+      s = bt_translate(other, iten, NULL, in, 1, 0, &out, &error);
+      CHECK(s == BT_OK, "service %d translating: %d: %s", round, s, error ? error : "");
+      bt_free_string(error);
+      error = NULL;
+      if (s == BT_OK) {
+        CHECK(out[0][0] != '\0', "service %d: empty translation", round);
+        bt_free_strings(out, 1);
+      }
+      if (round != 1) bt_service_free(other); /* round 1's is leaked */
+    }
+    /* The first service still translates after the others came and went. */
+    s = bt_translate(service, iten, NULL, in, 1, 0, &out, &error);
+    CHECK(s == BT_OK, "first service after the others: %d: %s", s, error ? error : "");
+    bt_free_string(error);
+    error = NULL;
+    if (s == BT_OK) bt_free_strings(out, 1);
+    if (failures == before) printf("services: 3 more created beside the first, all translated\n");
+  }
 
   /* --- pivot: it -> en -> it, a round trip through the second model --- */
   if (argc > 3) {

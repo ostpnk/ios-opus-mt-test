@@ -1,0 +1,82 @@
+diff --git a/inference/src/translator/logging.h b/inference/src/translator/logging.h
+index ff7f767d..269837e1 100644
+--- a/inference/src/translator/logging.h
++++ b/inference/src/translator/logging.h
+@@ -1,10 +1,18 @@
++#include <mutex>
++
+ #include "marian-fork/src/3rd_party/spdlog/spdlog.h"
+ #include "common/logging.h"
+ 
+ namespace marian {
+ namespace bergamot {
+ 
+-// RAII Wrap around logging, to clean up after the object on stack.
++// Gives a service Marian's loggers. spdlog's registry is process-wide, so the
++// loggers are too: every Logger shares them, the first to need one creates
++// it, and none is ever dropped. Creating them per Logger (and dropping them
++// in its destructor) failed every service created while another was alive
++// with "logger with name 'general' already exists" -- two services side by
++// side, or one left behind by a thread that ended without freeing it. The
++// level is the loggers', so the last Logger's config sets it for all.
+ class Logger {
+  public:
+   struct Config {
+@@ -16,7 +24,7 @@ class Logger {
+     }
+   };
+ 
+-  Logger(const Config &config) : marianLoggers_(createLoggers()) {
++  Logger(const Config &config) : marianLoggers_(processLoggers()) {
+     // We are manually creating loggers, because this is usually created in marian as a side-effect of
+     // config-parsing.
+     for (auto &logger : marianLoggers_) {
+@@ -48,23 +56,36 @@ class Logger {
+     return true;
+   }
+ 
+-  ~Logger() {
+-    // We need to manually destroy the loggers, as marian doesn't do
+-    // that but will complain when a new marian::Config tries to
+-    // initialise loggers with the same name.
+-    for (auto &logger : marianLoggers_) {
+-      if (logger) {
+-        spdlog::drop(logger->name());
+-      }
+-    }
+-  }
+-
+-  // Explicit destructor above is an indicator we should not allow this class to copy-construct.
+   Logger &operator=(const Logger &) = delete;
+   Logger(const Logger &) = delete;
+ 
+  private:
+   using MarianLogger = std::shared_ptr<spdlog::logger>;
++
++  // Marian's loggers as createLoggers() makes them, each taken from the
++  // registry when it's already there. ABORT() registers "general" itself when
++  // it finds none, possibly on another thread, so a registration that fails
++  // means the logger now exists: take that one.
++  static std::vector<MarianLogger> processLoggers() {
++    static std::mutex mutex;
++    std::lock_guard<std::mutex> lock(mutex);
++    static const char *const names[][2] = {{"general", "[%Y-%m-%d %T] %v"},
++                                           {"valid", "[%Y-%m-%d %T] [valid] %v"}};
++    std::vector<MarianLogger> loggers;
++    for (const auto &name : names) {
++      MarianLogger logger = spdlog::get(name[0]);
++      if (!logger) {
++        try {
++          logger = createStderrLogger(name[0], name[1]);
++        } catch (const spdlog::spdlog_ex &) {
++          logger = spdlog::get(name[0]);
++        }
++      }
++      if (logger) loggers.push_back(logger);
++    }
++    return loggers;
++  }
++
+   std::vector<MarianLogger> marianLoggers_;
+ };
+ }  // namespace bergamot

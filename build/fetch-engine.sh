@@ -47,6 +47,7 @@ apply "$DEST" "$ROOT/patches/marian-TargetArch-arm64.patch"
 apply "$DEST" "$ROOT/patches/marian-ExceptionWithCallStack-vla.patch"
 apply "$DEST" "$ROOT/patches/marian-zlib-TARGET_OS_MAC.patch"
 apply "$DEST" "$ROOT/patches/marian-pathie-android-api24.patch"
+apply "$DEST" "$ROOT/patches/marian-bergamot-Logger-process-wide.patch"
 apply "$DEST/inference/3rd_party/ssplit-cpp" "$ROOT/patches/ssplit-pcre2-nojit-ios.patch"
 apply "$DEST/inference/marian-fork/src/3rd_party/sentencepiece" \
   "$ROOT/patches/sentencepiece-clang20-kAnyType.patch"
