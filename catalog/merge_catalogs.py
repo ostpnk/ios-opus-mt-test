@@ -13,6 +13,11 @@ Mozilla's first, then OPUS-MT's — except that an OPUS-MT direct model
 beats it by --margin: an installed direct model always wins the route, so
 it would only make that direction worse.
 
+Mozilla publishes Norwegian twice, as `no` and `nb`, with the same weights;
+the `no` copy is left out (core_translate treats the tags as one language,
+so `no` requests still find the `nb` model), and a picker lists Norwegian
+once. The merge stops if the weights ever differ.
+
 Usage:
   python3 -I catalog/merge_catalogs.py --mozilla URL_OR_FILE --opus URL_OR_FILE \\
       --compare compare.json --out catalog.json [--margin 0.01]
@@ -29,6 +34,32 @@ def load(source):
         with urllib.request.urlopen(source, timeout=120) as response:
             return json.load(response)
     return json.loads(Path(source).read_text())
+
+
+# Tag -> the tag its Mozilla model is kept under, when both are published
+# with the same weights.
+DUPLICATE_TAGS = {"no": "nb"}
+
+
+def model_sha(entry):
+    model = f"{entry['modelRoot']}/{entry['engineConfig']['model']}"
+    return next(f["sha256"] for f in entry["files"] if f["relativePath"] == model)
+
+
+def without_duplicates(mozilla, report):
+    by_tags = {(e["sourceLanguage"], e["targetLanguage"]): e for e in mozilla}
+    kept = []
+    for entry in mozilla:
+        src, trg = entry["sourceLanguage"], entry["targetLanguage"]
+        twin = by_tags.get((DUPLICATE_TAGS.get(src, src), DUPLICATE_TAGS.get(trg, trg)))
+        if twin is not None and twin is not entry:
+            if model_sha(twin) != model_sha(entry):
+                raise SystemExit(f"{entry['id']} and {twin['id']} differ: "
+                                 "keep both, or choose one by score")
+            report.append(f"{entry['id']}: left out, the same model as {twin['id']}")
+            continue
+        kept.append(entry)
+    return kept
 
 
 def mean_chrf(result):
@@ -52,6 +83,7 @@ def main():
 
     opus_by_direction = {direction(e): e for e in opus}
     merged, used, report = [], set(), []
+    mozilla = without_duplicates(mozilla, report)
     for entry in mozilla:
         rival = opus_by_direction.get(direction(entry))
         if rival is None:
