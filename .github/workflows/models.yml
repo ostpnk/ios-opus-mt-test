@@ -44,9 +44,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/models-')
         env:
           GH_TOKEN: ${{ github.token }}
+        # Create first, then upload (as opus.yml does): creating with the
+        # files in one go failed at the very end ("tag_name already exists",
+        # HTTP 422) though every file had uploaded. A rerun skips the create
+        # and replaces the files.
         run: |
-          gh release create "$GITHUB_REF_NAME" out/bundles/* \
-            out/catalog.json out/registry.json out/SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Translation models $GITHUB_REF_NAME" \
-            --notes "Mozilla's released Firefox Translations models (MPL-2.0), unmodified, one .tar.gz per direction with the licence and each file's source (SOURCE.md). catalog.json lists them for core_translate_model; registry.json is the Mozilla registry snapshot they were taken from."
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "Translation models $GITHUB_REF_NAME" \
+              --notes "Mozilla's released Firefox Translations models (MPL-2.0), unmodified, one .tar.gz per direction with the licence and each file's source (SOURCE.md). catalog.json lists them for core_translate_model; registry.json is the Mozilla registry snapshot they were taken from."
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber \
+            out/bundles/* out/catalog.json out/registry.json out/SHA256SUMS
