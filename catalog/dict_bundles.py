@@ -44,7 +44,9 @@ Per source language (forms-<lang>.tar.gz, folder forms-<lang>/):
 
 The catalog carries each direction's coverage: the share of the source
 language's 1,000 and 10,000 most frequent words (FrequencyWords) that
-lookup finds, directly or through the forms pack.
+lookup finds, directly or through the forms pack; and each bundle's
+version, the newest kaikki.org dump date among the editions it was built
+from.
 
 Usage:
   python3 -I catalog/dict_bundles.py --out OUT --work DIR --release-url URL \\
@@ -321,6 +323,15 @@ def dated(dumps, editions):
     return f" (dumps: {', '.join(known)})" if known else ""
 
 
+def version(dumps, editions):
+    """The newest dump date among the editions used ('2026-10-28'), or None:
+    a bundle's data date, which an app can name it by. The exact build is
+    still archiveSha256 (a change to this script alone changes a bundle
+    without changing its dumps)."""
+    known = [dumps[e] for e in editions if dumps.get(e)]
+    return max(known) if known else None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True, type=Path)
@@ -425,7 +436,8 @@ def main():
             sources=", ".join(sorted(sources)))
         packed = pack(args.out, bundle_id, db_path, source_md, license_text, args.release_url)
         built.append({"id": bundle_id, "src": src, "tgt": tgt, "keys": keys,
-                      "headwords": len(rows), "sources": sorted(sources), "packed": packed})
+                      "headwords": len(rows), "sources": sorted(sources), "packed": packed,
+                      "version": version(dumps, {s.split(":")[0] for s in sources})})
         print(f"  {bundle_id}: {len(rows)} headwords, "
               f"{packed['expectedDownloadBytes'] / 1e6:.1f} MB", flush=True)
 
@@ -506,6 +518,7 @@ def main():
             dated=dated(dumps, dumps), sources="forms and form-of senses")
         forms_by_lang[src] = {
             "id": bundle_id, "mapping": mapping, "forms": count,
+            "version": version(dumps, dumps),
             "packed": pack(args.out, bundle_id, db_path, source_md, license_text,
                            args.release_url)}
         print(f"  {bundle_id}: {count} forms"
@@ -517,7 +530,9 @@ def main():
     for forms in forms_by_lang.values():
         entries.append({
             "id": forms["id"], "kind": "forms", "name": f"{NAMES.get(forms['id'][6:], forms['id'][6:])} word forms",
-            "sourceLanguage": forms["id"][6:], "forms": forms["forms"], **forms["packed"]})
+            "sourceLanguage": forms["id"][6:], "forms": forms["forms"],
+            **({"version": forms["version"]} if forms["version"] else {}),
+            **forms["packed"]})
     for b in built:
         forms = forms_by_lang.get(b["src"])
         entries.append({
@@ -529,6 +544,7 @@ def main():
             "coverage": coverage(b["keys"], forms["mapping"] if forms else {},
                                  [fold(w) for w in freq.get(b["src"], [])]),
             "sources": b["sources"],
+            **({"version": b["version"]} if b["version"] else {}),
             **b["packed"]})
     for i, entry in enumerate(entries):
         entry["downloadUrl"] = entry["downloadUrl"].replace(
